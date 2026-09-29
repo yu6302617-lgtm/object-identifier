@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>AI生活物品识别</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f5f6f8;color:#1f2329;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif}
+.wrap{max-width:600px;margin:auto;padding:22px 16px 40px}.head{padding:10px 4px 20px}.title{font-size:32px;font-weight:800}.sub{color:#777;margin-top:8px;line-height:1.6}
+.box,.card{background:#fff;border-radius:22px;padding:18px;box-shadow:0 6px 24px #0000000a}.empty{height:340px;border-radius:16px;background:#f0f1f3;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#888}.cam{font-size:64px;margin-bottom:12px}.preview{width:100%;height:340px;object-fit:contain;border-radius:16px;background:#f0f1f3;display:none}
+input{display:none}button{width:100%;border:0;border-radius:16px;padding:16px;margin-top:16px;font-size:17px;font-weight:700;background:#111;color:#fff}button:disabled{opacity:.5}
+.status{margin-top:16px;padding:13px 14px;border-radius:12px;background:#eef4ff;color:#3157a4;display:none}.result{margin-top:18px}.section{font-size:21px;font-weight:800;margin:20px 4px 10px}.item{background:#fff;border-radius:18px;padding:17px;margin:12px 0;box-shadow:0 4px 18px #00000008}.row{display:flex;justify-content:space-between;gap:10px}.name{font-size:21px;font-weight:800}.tag{font-size:12px;background:#f0f1f3;border-radius:20px;padding:6px 10px;color:#666;white-space:nowrap}.confidence{font-size:13px;color:#27824a;margin-top:8px}.label{font-weight:700;margin-top:12px}.desc{margin-top:6px;line-height:1.7;color:#555;font-size:14px}.small{font-size:12px;color:#999;margin-top:18px;text-align:center}
+</style>
+</head><body><div class="wrap">
+<div class="head"><div class="title">AI生活物品识别</div><div class="sub">拍一张照片，AI 会识别里面的多个常见物品，并告诉你它们的用途。</div></div>
+<div class="box">
+<div id="empty" class="empty"><div class="cam">📷</div><div>选择一张生活照片</div></div>
+<img id="preview" class="preview">
+<input id="file" type="file" accept="image/*" capture="environment">
+<button id="choose">📷 拍照 / 选择照片</button>
+<div id="status" class="status"></div>
+</div>
+<div id="result" class="result"></div>
+<div class="small">AI 识别结果仅供参考，不用于专业鉴定。</div>
+</div>
+<script>
+const file=document.getElementById('file'),choose=document.getElementById('choose'),preview=document.getElementById('preview'),empty=document.getElementById('empty'),status=document.getElementById('status'),result=document.getElementById('result');
+choose.onclick=()=>file.click();
+function setStatus(t){status.textContent=t;status.style.display='block'}
+function resize(file,maxSide=1400,quality=.82){
+ return new Promise((resolve,reject)=>{
+  const img=new Image(), url=URL.createObjectURL(file);
+  img.onload=()=>{let w=img.width,h=img.height,s=Math.min(1,maxSide/Math.max(w,h));w=Math.round(w*s);h=Math.round(h*s);
+   const c=document.createElement('canvas');c.width=w;c.height=h;c.getContext('2d').drawImage(img,0,0,w,h);
+   c.toBlob(b=>{URL.revokeObjectURL(url);b?resolve(b):reject(new Error('图片处理失败'))},'image/jpeg',quality)
+  };img.onerror=reject;img.src=url;
+ })
+}
+function b64(blob){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(',')[1]);r.onerror=rej;r.readAsDataURL(blob)})}
+file.onchange=async()=>{
+ const f=file.files[0];if(!f)return;
+ preview.src=URL.createObjectURL(f);preview.style.display='block';empty.style.display='none';result.innerHTML='';
+ choose.disabled=true;setStatus('正在准备图片…');
+ try{
+  const blob=await resize(f); const data=await b64(blob);
+  setStatus('AI 正在识别，请稍等…');
+  const r=await fetch('/api/identify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({image:data})});
+  const j=await r.json(); if(!r.ok||!j.success)throw new Error(j.error||'识别失败');
+  if(!j.results.length){result.innerHTML='<div class="card">没有可靠识别到常见物品，请换一张更清晰的照片。</div>';return}
+  result.innerHTML='<div class="section">识别到 '+j.results.length+' 个物品</div>'+j.results.map(x=>`
+   <div class="item"><div class="row"><div class="name">${esc(x.name)}</div><div class="tag">${esc(x.category)}</div></div>
+   <div class="confidence">置信度：${Number(x.confidence)||0}%</div>
+   <div class="label">用途</div><div class="desc">${esc(x.usage)}</div>
+   <div class="label">介绍</div><div class="desc">${esc(x.description)}</div></div>`).join('');
+ }catch(e){result.innerHTML='<div class="card">识别失败：'+esc(e.message)+'</div>'}
+ finally{choose.disabled=false;setStatus('识别完成');}
+};
+function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
+</script></body></html>
